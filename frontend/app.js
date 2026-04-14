@@ -273,7 +273,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const headers = {};
             if(currentToken) headers["Authorization"] = `Bearer ${currentToken}`;
 
-            const response = await fetch("http://localhost:3000/api/ehr", {
+            const response = await fetch("/api/ehr", {
                 method: "POST",
                 headers: headers,
                 body: formData 
@@ -306,7 +306,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             const headers = {};
             if(currentToken) headers["Authorization"] = `Bearer ${currentToken}`;
 
-            const response = await fetch("http://localhost:3000/api/ehr", { headers });
+            const response = await fetch("/api/ehr", { headers });
             let allRecords = await response.json();
             
             // Apply RBAC filters locally (In production, backend should filter this based on Auth0 token)
@@ -347,7 +347,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 </div>
                 <div style="display: flex; gap: 10px;">
                   ${attachmentHtml}
-                  <div class="attachment-action"><a href="http://localhost:3000/api/ehr/${record._id}/pdf" target="_blank" class="cyber-btn" style="background: var(--success-color);">📄 Download PDF Report</a></div>
+                  <div class="attachment-action"><a href="/api/ehr/${record._id}/pdf" target="_blank" class="cyber-btn" style="background: var(--success-color);">📄 Download PDF Report</a></div>
                 </div>
                 <div class="footer cyber-footer"><small>${dateStr}</small></div>
             `;
@@ -376,7 +376,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // --- FEATURE 5: ANALYTICS DASHBOARD ---
     async function fetchAnalytics() {
         try {
-            const response = await fetch("http://localhost:3000/api/analytics");
+            const response = await fetch("/api/analytics");
             const data = await response.json();
             
             document.getElementById("kpi-total").innerText = data.totalRecords || 0;
