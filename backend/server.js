@@ -8,14 +8,19 @@ const cors = require("cors");
 const crypto = require("crypto");
 const PDFDocument = require("pdfkit"); // Add PDF Document generation
 
+// ==========================================
 // CPaaS Integrations (SendGrid for Email)
+// ==========================================
 const sgMail = require('@sendgrid/mail');
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static('uploads'));
 
 // ==========================================
 // SECaaS (Security): Encryption at Rest (Simulating AWS KMS)
@@ -46,8 +51,9 @@ function decryptHIPAA(text) {
 // ==========================================
 // DBaaS: Fully Managed MongoDB Atlas
 // ==========================================
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ DBaaS: Connected to MongoDB Atlas (EHR Database)"))
+const MONGO_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/telemedia_ehr";
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("✅ DBaaS: Connected to MongoDB (EHR Database)"))
   .catch(err => console.error("❌ DBaaS Connection Error:", err));
 
 const ehrSchema = new mongoose.Schema({
@@ -60,28 +66,39 @@ const ehrSchema = new mongoose.Schema({
 const EHRRecord = mongoose.model("EHRRecord", ehrSchema);
 
 // ==========================================
-// STaaS: AWS S3 unstructured Data Storage
+// STaaS: AWS S3 unstructured Data Storage (with Fallback)
 // ==========================================
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  }
-});
-
-const uploadScan = multer({
-  storage: multerS3({
-    s3: s3,
-    bucket: process.env.AWS_S3_BUCKET,
-    metadata: function (req, file, cb) {
-      cb(null, { fieldName: file.fieldname, classification: "CONFIDENTIAL-MEDICAL-IMAGING" });
-    },
-    key: function (req, file, cb) {
-      cb(null, "ehr-scans/" + Date.now().toString() + "-" + file.originalname);
+let uploadScan;
+if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET) {
+  const s3 = new S3Client({
+    region: process.env.AWS_REGION || "us-east-1",
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     }
-  })
-});
+  });
+
+  uploadScan = multer({
+    storage: multerS3({
+      s3: s3,
+      bucket: process.env.AWS_S3_BUCKET,
+      metadata: function (req, file, cb) {
+        cb(null, { fieldName: file.fieldname, classification: "CONFIDENTIAL-MEDICAL-IMAGING" });
+      },
+      key: function (req, file, cb) {
+        cb(null, "ehr-scans/" + Date.now().toString() + "-" + file.originalname);
+      }
+    })
+  });
+} else {
+  console.warn("⚠️ AWS S3 Credentials missing. Falling back to local disk storage for Medical Scans.");
+  const fs = require('fs');
+  const uploadDir = './uploads';
+  if (!fs.existsSync(uploadDir)){
+      fs.mkdirSync(uploadDir);
+  }
+  uploadScan = multer({ dest: 'uploads/' });
+}
 
 // ==========================================
 // EHR PORTAL API ROUTES
@@ -107,8 +124,8 @@ app.post("/api/ehr", uploadScan.single("medicalScan"), async (req, res) => {
   try {
     let scanUrl = null;
     if (req.file) {
-      scanUrl = req.file.location;
-      console.log("✅ STaaS: securely uploaded Medical Scan to AWS S3 Storage");
+      scanUrl = req.file.location || `/uploads/${req.file.filename}`;
+      console.log(`✅ STaaS/Local: Saved Medical Scan to ${scanUrl}`);
     }
 
     const newRecord = new EHRRecord({
@@ -122,15 +139,16 @@ app.post("/api/ehr", uploadScan.single("medicalScan"), async (req, res) => {
     console.log("✅ DBaaS: Saved encrypted Electronic Health Record to MongoDB");
 
     // CPaaS Feature Simulation: Send Email asynchronously via SendGrid
-    console.log(`✉️ CPaaS: Triggering async Email notification to patient [${req.body.patientName}] via SendGrid...`);
-    // Example SendGrid usage once integrated:
-    const msg = {
-      to: 'patient@example.com', // Get from req.body or DB
-      from: 'your-verified-email@domain.com', // Must be verified in SendGrid
-      subject: 'New Medical Records Available',
-      text: `Hello ${req.body.patientName}, your doctor ${req.body.doctorId || "Dr. Demo"} has posted new lab results.`
-    };
-    sgMail.send(msg).then(() => console.log('Email sent')).catch(err => console.error(err));
+    if (process.env.SENDGRID_API_KEY) {
+      console.log(`✉️ CPaaS: Triggering async Email notification to patient [${req.body.patientName}] via SendGrid...`);
+      const msg = {
+        to: process.env.TEST_PATIENT_EMAIL || 'patient@example.com', 
+        from: process.env.VERIFIED_SENDER_EMAIL || 'your-verified-email@domain.com',
+        subject: 'New Medical Records Available',
+        text: `Hello ${req.body.patientName}, your doctor ${req.body.doctorId || "Dr. Demo"} has posted new lab results.`
+      };
+      sgMail.send(msg).then(() => console.log('✅ CPaaS Email sent')).catch(err => console.error('❌ CPaaS Email error:', err.response ? err.response.body : err));
+    }
 
     res.status(201).json({ message: "Record securely created and patient notified via CPaaS!" });
   } catch (error) {
@@ -182,14 +200,11 @@ app.get("/api/ehr/:id/pdf", async (req, res) => {
     // Generate PDF Stream
     const doc = new PDFDocument();
     
-    // Set headers so browser downloads it
     res.setHeader("Content-disposition", 'attachment; filename="EHR_Report_' + record._id + '.pdf"');
     res.setHeader("Content-type", "application/pdf");
     
-    // Pipe PDF to response
     doc.pipe(res);
     
-    // Add PDF Content
     doc.fontSize(20).text('🏥 CloudHealth Enterprise', { align: 'center' });
     doc.moveDown();
     doc.fontSize(16).text('Official Embedded PDF Medical Report', { align: 'center' });
@@ -198,18 +213,22 @@ app.get("/api/ehr/:id/pdf", async (req, res) => {
     doc.fontSize(12);
     doc.text(`Patient Name: ${record.patientName}`);
     doc.text(`Attending Doctor ID: ${record.doctorId}`);
-    doc.text(`Date of Entry: ${record.createdAt.toDateString()}`);
+    doc.text(`Date of Entry: ${new Date(record.createdAt).toDateString()}`);
     
     doc.moveDown();
+    doc.text(`Clinical Diagnosis (Decrypted for PDF):`);
     doc.rect(doc.x, doc.y, 400, 100).stroke(); // Box for diagnosis
     doc.moveDown(0.5);
-    doc.text(`Clinical Diagnosis (Decrypted for PDF):`);
-    doc.text(decryptData(record.encryptedDiagnosis, record.encryptionIV));
+    doc.text(decryptHIPAA(record.diagnosisEncrypted));
     
-    if (record.s3ScanUrl) {
+    if (record.scanUrl) {
       doc.moveDown();
-      doc.text(`AWS S3 Tele-Media Attachment:`);
-      doc.fillColor('blue').text(record.s3ScanUrl, { link: record.s3ScanUrl, underline: true });
+      doc.moveDown();
+      doc.moveDown();
+      doc.moveDown();
+      doc.moveDown();
+      doc.text(`Tele-Media Attachment:`);
+      doc.fillColor('blue').text(record.scanUrl, { link: record.scanUrl, underline: true });
       doc.fillColor('black'); // reset color
     }
     
