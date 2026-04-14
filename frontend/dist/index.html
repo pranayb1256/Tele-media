@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enterprise TeleMedicine & EHR Portal</title>
+  
+  <!-- Auth0 SPA SDK (SECaaS) -->
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
+  
+  <!-- Chart.js for PaaS Analytics (Feature 5) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Jitsi Meet API for CPaaS Video Consultations (Feature 3) -->
+  <script src="https://meet.jit.si/external_api.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BQKB2q0Z.css">
+</head>
+<body>
+  
+  <header>
+    <div class="header-container">
+      <div class="brand">
+        <h1>⚕️ TeleMedicine & EHR Portal</h1>
+        <p>Advanced Cloud-Native Healthcare System</p>
+      </div>
+      <div class="auth-controls" id="authControls">
+        <div id="userProfile" class="user-profile hidden">
+          <img id="userAvatar" src="" alt="User Avatar" class="avatar" />
+          <span id="userName" style="font-weight: 500;">username</span>
+          <span id="userRoleBadge" class="badge verified-badge" style="margin-left:5px; background: rgba(255,255,255,0.2); border:none; color: white;">Role</span>
+        </div>
+        <button id="btnLogin" class="btn-login">Login / Register (SECaaS)</button>
+        <button id="btnLogout" class="btn-logout hidden">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification Banner -->
+  <div id="notificationBanner" class="notification hidden">
+    <p id="notificationText"></p>
+    <button id="closeNotification">&times;</button>
+  </div>
+
+  <div class="unauthorized-state" id="unauthorizedState">
+    <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-lock"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+    <h2>Authentication Required</h2>
+    <p>Please log in using Auth0 Identity Management to access the Enterprise TeleMedicine Portal.</p>
+  </div>
+
+  <div class="app-wrapper hidden" id="appWrapper">
+    
+    <!-- Enhanced Navigation Tabs with RBAC support -->
+    <nav class="tabs">
+      <button id="tab-patient" class="active">🤒 My Portal (Records)</button>
+      <button id="tab-doctor" class="hidden">👨‍⚕️ Ingestion (Doctors Only)</button>
+      <button id="tab-video">📹 Video Consult (WebRTC)</button>
+      <button id="tab-admin" class="hidden">📊 Admin Dashboard (Analytics)</button>
+    </nav>
+
+    <main>
+      
+      <!-- DOCTOR INGESTION WORKSPACE (RBAC Protected) -->
+      <section id="doctor-view" class="view hidden">
+        <div class="card panel-primary">
+          <div class="card-header-styled">
+            <h2>Create Electronic Health Record (EHR)</h2>
+            <div>
+              <span class="badge ai-badge">AI Analysis Ready</span>
+              <span class="badge verified-badge">CPaaS Notifications</span>
+            </div>
+          </div>
+          
+          <form id="ehrForm" enctype="multipart/form-data">
+            <div class="form-group">
+              <label><strong>Attending Physician 🛡️</strong></label>
+              <input type="text" id="doctorId" placeholder="Verify Identity via SECaaS..." readonly />
+            </div>
+
+            <div class="form-group">
+              <label><strong>Patient Identity 🩺</strong></label>
+              <input type="text" id="patientName" placeholder="e.g., John Doe" required />
+            </div>
+
+            <div class="form-group">
+              <label><strong>Clinical Diagnosis (Encrypted at Rest) 🔒</strong></label>
+              <div style="display: flex; gap: 10px; margin-bottom: 5px;">
+                  <button type="button" id="startDictationBtn" class="cyber-btn" style="padding: 5px 15px; font-size: 0.9rem; background: var(--secondary-color);">🎙️ Start Clinical AI Dictation</button>
+              </div>
+              <textarea id="diagnosis" rows="4" class="styled-textarea" placeholder="AI-assisted dictation or manual entry..." required></textarea>
+            </div>
+
+            <!-- AWS S3 File Drop -->
+            <div class="file-upload-area">
+              <span class="staas-label">☁️ AWS S3 DICOM/Scan Storage (STaaS)</span>
+              <p>Drag & Drop medical images or click to select.</p>
+              <input type="file" id="medicalScan" name="medicalScan" accept="image/*,.pdf" />
+              <div id="fileInfo" class="hidden" style="margin-top: 10px; color: var(--primary-color);"></div>
+            </div>
+
+            <button type="submit" id="submitBtn" class="cyber-btn submit-btn">
+              🌩️ Encrypt & Transmit to Cloud
+            </button>
+          </form>
+        </div>
+      </section>
+
+      <!-- PATIENT PORTAL WORKSPACE -->
+      <section id="patient-view" class="view active-view">
+        <div class="card filters">
+          <input type="text" id="searchRecords" class="search-bar styled-textarea" placeholder="🔍 Search securely decrypted records by patient, doctor, or diagnosis..." />
+        </div>
+        
+        <div id="loadingSkeleton" class="skeleton-loader hidden">
+          <div class="skeleton-box h3"></div>
+          <div class="skeleton-box p"></div>
+          <div class="skeleton-box p"></div>
+        </div>
+
+        <div id="recordsContainer" class="records-grid">
+           <!-- Dynamic cards loaded via JS -->
+        </div>
+      </section>
+
+      <!-- VIDEO CONSULTATION WORKSPACE (Feature 3) -->
+      <section id="video-view" class="view hidden">
+        <div class="card">
+          <div class="card-header-styled">
+            <h2>Live Telehealth Consultations (CPaaS)</h2>
+            <span class="badge ai-badge">Encrypted WebRTC</span>
+          </div>
+          <p style="margin-bottom: 20px;">Join an instant, high-definition video room hosted directly in the browser via CPaaS integration.</p>
+          
+          <div id="jitsi-container" class="video-container">
+               <button id="startVideoBtn" class="cyber-btn">🎥 Initialize Secure Video Room</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ADMIN ANALYTICS DASHBOARD (Feature 5) -->
+      <section id="admin-view" class="view hidden">
+         <div class="card">
+            <div class="card-header-styled">
+              <h2>Hospital System Analytics (PaaS Aggregation)</h2>
+              <span class="badge ai-badge">Live Document Processing</span>
+            </div>
+            
+            <div class="dashboard-grid">
+               <div class="metric-card">
+                  <h3>Total EHR Records</h3>
+                  <div class="big-number" id="kpi-total">0</div>
+               </div>
+               <div class="metric-card">
+                  <h3>AWS S3 Usage (Estimated)</h3>
+                  <div class="big-number"><span id="kpi-storage">0</span> GB</div>
+               </div>
+               <div class="metric-card">
+                  <h3>AI Diagnostics Ran</h3>
+                  <div class="big-number">124</div>
+               </div>
+               <div class="metric-card">
+                  <h3>Active Twilio SMS Sent</h3>
+                  <div class="big-number">42</div>
+               </div>
+            </div>
+
+            <div class="charts-container">
+               <div class="chart-box">
+                  <h3 style="margin-top:0; color:#555;">Patient Intake (Last 7 Days)</h3>
+                  <canvas id="intakeChart"></canvas>
+               </div>
+               <div class="chart-box">
+                  <h3 style="margin-top:0; color:#555;">Consultations by Physician</h3>
+                  <canvas id="doctorChart"></canvas>
+               </div>
+            </div>
+
+         </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
